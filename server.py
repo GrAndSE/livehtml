@@ -1,9 +1,12 @@
 import fcntl
 import json
+import mimetypes
 import os
 import signal
 
 from tornado import ioloop, web, websocket
+
+mimetypes.init()
 
 
 class Notifier(object):
@@ -27,7 +30,9 @@ class Notifier(object):
                 print file_name, 'modified', modified, last_modified
                 self.handlers[file_name] = (modified, handler)
                 with open(file_name) as file_data:
-                    result = {'head': [], 'body': []}
+                    _, file_extension = os.path.splitext(file_name)
+                    result = {'head': [], 'body': [],
+                              'type': mimetypes.types_map[file_extension]}
                     part = None
                     for line in file_data:
                         lower_line = line.lower()
@@ -51,22 +56,33 @@ class Notifier(object):
                     handler.write_message(json.dumps(buffer))
         self.running = False
 
-handler = Notifier()
-signal.signal(signal.SIGIO, handler)
-root_path = os.path.realpath('.')
-rfd = os.open(root_path, os.O_RDONLY)
-fcntl.fcntl(rfd, fcntl.F_SETSIG, 0)
-fcntl.fcntl(rfd, fcntl.F_NOTIFY,
-            fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
-for path in os.listdir(root_path):
-    if os.path.isdir(path):
-        fd = os.open(path, os.O_RDONLY)
-        fcntl.fcntl(fd, fcntl.F_SETSIG, 0)
-        fcntl.fcntl(fd, fcntl.F_NOTIFY,
-                    fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
+
+def init_handler(root_path):
+    '''Init file changes handler
+    '''
+    handler = Notifier()
+    signal.signal(signal.SIGIO, handler)
+    rfd = os.open(root_path, os.O_RDONLY)
+    fcntl.fcntl(rfd, fcntl.F_SETSIG, 0)
+    fcntl.fcntl(rfd, fcntl.F_NOTIFY,
+                fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
+    for path in os.listdir(root_path):
+        if os.path.isdir(path):
+            fd = os.open(path, os.O_RDONLY)
+            fcntl.fcntl(fd, fcntl.F_SETSIG, 0)
+            fcntl.fcntl(fd, fcntl.F_NOTIFY,
+                        fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
+    return handler
 
 
 class ChangeWebSocket(websocket.WebSocketHandler):
+    '''Web socket that sends the changes
+    '''
+    def initialize(self, handler):
+        '''Init with a file change handler
+        '''
+        self.handler = handler
+
     def open(self):
         print("WebSocket opened")
 
@@ -74,13 +90,14 @@ class ChangeWebSocket(websocket.WebSocketHandler):
         '''Create a file change handler
         '''
         print 'Append to handler', message
-        handler.append(self, os.path.realpath('./' + message))
+        self.handler.append(self, os.path.realpath('./' + message))
 
     def on_close(self):
         print("WebSocket closed")
 
 
 SCRIPT = '<script type="text/javascript" src="/ldws.js"></script>'
+
 
 class HTMLHandler(web.RequestHandler):
     '''Handle html static context
@@ -101,10 +118,13 @@ class HTMLHandler(web.RequestHandler):
 
 
 if __name__ == '__main__':
+    # start server
+    root_path = os.path.realpath('.')
+    handler = init_handler(root_path)
     application = web.Application([
-        ('/_channel/', ChangeWebSocket),
+        ('/_channel/', ChangeWebSocket, {'handler': handler}),
         ('/(.+\.html)', HTMLHandler),
-        ('/(.*)', web.StaticFileHandler, {"path": root_path}),
+        ('/(.*)', web.StaticFileHandler, {'path': root_path}),
     ], template_path='.')
     application.listen(8888)
     ioloop.IOLoop.instance().start()

@@ -12,15 +12,7 @@ class EchoWebSocket(websocket.WebSocketHandler):
         print("WebSocket closed")
 
 
-class MainHandler(web.RequestHandler):
-    def get(self):
-        print 'MainHandler get'
-        self.write('''<!DOCTYPE html>
-<html>
-<head>
-    <title></title>
-</head>
-<body>
+SCRIPT = '''
     <script type="text/javascript">
         var ws = new WebSocket("ws://localhost:8888/_channel/");
         ws.onopen = function() {
@@ -30,14 +22,27 @@ class MainHandler(web.RequestHandler):
            alert(evt.data);
         };
     </script>
-</body>
-</html>''')
+'''
+
+class MainHandler(web.RequestHandler):
+    def get(self, path):
+        print self.request.path
+        with open('.' + self.request.path) as html_file:
+            for line in html_file:
+                if '</body>' not in line:
+                    self.write(line)
+                else:
+                    in_body, after_body = line.split('</body>')
+                    self.write(in_body)
+                    self.write(SCRIPT)
+                    self.write('</body>')
+                    self.write(after_body)
 
 
 if __name__ == '__main__':
     application = web.Application([
         ('/_channel/', EchoWebSocket),
-        ('/', MainHandler),
-    ])
+        ('/(.+\.html)', MainHandler),
+    ], template_path='.')
     application.listen(8888)
     ioloop.IOLoop.instance().start()

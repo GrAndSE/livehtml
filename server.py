@@ -1,4 +1,5 @@
 import fcntl
+import json
 import os
 import signal
 
@@ -33,20 +34,21 @@ class Notifier(object):
                         if not part:
                             if '<head>' in lower_line:
                                 part = 'head'
-                                _, lower_line = lower_line.split('<head>')
+                                _, line = lower_line.split('<head>')
                             elif '<body>' in lower_line:
                                 part = 'body'
-                                _, lower_line = lower_line.split('<body>')
+                                _, line = lower_line.split('<body>')
                         else:
                             if ('</head>' in lower_line or
                                     '</body>' in lower_line):
-                                lower_line, _ = lower_line.split('</%s>' %
+                                line, _ = lower_line.split('</%s>' %
                                                                  part)
-                                result[part].append(lower_line)
+                                result[part].append(line)
                                 part = None
                         if part:
-                            result[part].append(lower_line);
-                    handler.write_message(result)
+                            result[part].append(line);
+                    buffer = {name: ''.join(result[name]) for name in result}
+                    handler.write_message(json.dumps(buffer))
         self.running = False
 
 handler = Notifier()
@@ -82,11 +84,20 @@ SCRIPT = '''
     <script type="text/javascript">
         window.onload = function() {
             var ws = new WebSocket("ws://localhost:8888/_channel/");
-            ws.onopen = function() {
-                ws.send("%s");
-            };
+            ws.onopen = function() { ws.send("%s"); };
             ws.onmessage = function(evt) {
-                alert(evt.data);
+                try {
+                    var data = JSON.parse(evt.data);
+                    if (data.head && data.head.length > 0) {
+                        document.head.innerHTML = data.head;
+                    }
+                    if (data.body && data.body.length > 0) {
+                        document.body.innerHTML = data.body;
+                    }
+                } catch(e) {
+                    console.log("Parsing:\\n", evt.data);
+                    console.error(e);
+                }
             };
         };
     </script>

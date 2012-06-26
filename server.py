@@ -80,30 +80,9 @@ class ChangeWebSocket(websocket.WebSocketHandler):
         print("WebSocket closed")
 
 
-SCRIPT = '''
-    <script type="text/javascript">
-        window.onload = function() {
-            var ws = new WebSocket("ws://localhost:8888/_channel/");
-            ws.onopen = function() { ws.send("%s"); };
-            ws.onmessage = function(evt) {
-                try {
-                    var data = JSON.parse(evt.data);
-                    if (data.head && data.head.length > 0) {
-                        document.head.innerHTML = data.head;
-                    }
-                    if (data.body && data.body.length > 0) {
-                        document.body.innerHTML = data.body;
-                    }
-                } catch(e) {
-                    console.log("Parsing:\\n", evt.data);
-                    console.error(e);
-                }
-            };
-        };
-    </script>
-'''
+SCRIPT = '<script type="text/javascript" src="/ldws.js"></script>'
 
-class MainHandler(web.RequestHandler):
+class HTMLHandler(web.RequestHandler):
     '''Handle html static context
     '''
 
@@ -116,7 +95,7 @@ class MainHandler(web.RequestHandler):
                 else:
                     in_body, after_body = line.split('</head>')
                     self.write(in_body)
-                    self.write(SCRIPT % self.request.path)
+                    self.write(SCRIPT)
                     self.write('</head>')
                     self.write(after_body)
 
@@ -124,7 +103,8 @@ class MainHandler(web.RequestHandler):
 if __name__ == '__main__':
     application = web.Application([
         ('/_channel/', ChangeWebSocket),
-        ('/(.+\.html)', MainHandler),
+        ('/(.+\.html)', HTMLHandler),
+        ('/(.*)', web.StaticFileHandler, {"path": root_path}),
     ], template_path='.')
     application.listen(8888)
     ioloop.IOLoop.instance().start()

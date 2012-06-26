@@ -1,12 +1,78 @@
+import fcntl
+import os
+import signal
+
 from tornado import ioloop, web, websocket
 
 
-class EchoWebSocket(websocket.WebSocketHandler):
+class Notifier(object):
+    '''Class that sends notifications
+    '''
+    def __init__(self):
+        self.handlers = {}
+        self.running = False
+
+    def append(self, handler, file_name):
+        self.handlers[file_name] = (os.stat(file_name).st_mtime, handler)
+
+    def __call__(self, signum, frame):
+        if self.running:
+            return
+        self.running = True
+        for file_name in self.handlers:
+            last_modified, handler = self.handlers[file_name]
+            modified = os.stat(file_name).st_mtime
+            if last_modified < modified:
+                print file_name, 'modified', modified, last_modified
+                self.handlers[file_name] = (modified, handler)
+                with open(file_name) as file_data:
+                    result = {'head': [], 'body': []}
+                    part = None
+                    for line in file_data:
+                        lower_line = line.lower()
+                        if not part:
+                            if '<head>' in lower_line:
+                                part = 'head'
+                                _, lower_line = lower_line.split('<head>')
+                            elif '<body>' in lower_line:
+                                part = 'body'
+                                _, lower_line = lower_line.split('<body>')
+                        else:
+                            if ('</head>' in lower_line or
+                                    '</body>' in lower_line):
+                                lower_line, _ = lower_line.split('</%s>' %
+                                                                 part)
+                                result[part].append(lower_line)
+                                part = None
+                        if part:
+                            result[part].append(lower_line);
+                    handler.write_message(result)
+        self.running = False
+
+handler = Notifier()
+signal.signal(signal.SIGIO, handler)
+root_path = os.path.realpath('.')
+rfd = os.open(root_path, os.O_RDONLY)
+fcntl.fcntl(rfd, fcntl.F_SETSIG, 0)
+fcntl.fcntl(rfd, fcntl.F_NOTIFY,
+            fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
+for path in os.listdir(root_path):
+    if os.path.isdir(path):
+        fd = os.open(path, os.O_RDONLY)
+        fcntl.fcntl(fd, fcntl.F_SETSIG, 0)
+        fcntl.fcntl(fd, fcntl.F_NOTIFY,
+                    fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
+
+
+class ChangeWebSocket(websocket.WebSocketHandler):
     def open(self):
         print("WebSocket opened")
 
     def on_message(self, message):
-        self.write_message("You said: " + message)
+        '''Create a file change handler
+        '''
+        print 'Append to handler', message
+        handler.append(self, os.path.realpath('./' + message))
 
     def on_close(self):
         print("WebSocket closed")
@@ -14,34 +80,39 @@ class EchoWebSocket(websocket.WebSocketHandler):
 
 SCRIPT = '''
     <script type="text/javascript">
-        var ws = new WebSocket("ws://localhost:8888/_channel/");
-        ws.onopen = function() {
-           ws.send("Hello, world");
-        };
-        ws.onmessage = function (evt) {
-           alert(evt.data);
+        window.onload = function() {
+            var ws = new WebSocket("ws://localhost:8888/_channel/");
+            ws.onopen = function() {
+                ws.send("%s");
+            };
+            ws.onmessage = function(evt) {
+                alert(evt.data);
+            };
         };
     </script>
 '''
 
 class MainHandler(web.RequestHandler):
+    '''Handle html static context
+    '''
+
     def get(self, path):
-        print self.request.path
-        with open('.' + self.request.path) as html_file:
+        real_path = os.path.realpath('./' + path)
+        with open(real_path) as html_file:
             for line in html_file:
-                if '</body>' not in line:
+                if '</head>' not in line:
                     self.write(line)
                 else:
-                    in_body, after_body = line.split('</body>')
+                    in_body, after_body = line.split('</head>')
                     self.write(in_body)
-                    self.write(SCRIPT)
-                    self.write('</body>')
+                    self.write(SCRIPT % self.request.path)
+                    self.write('</head>')
                     self.write(after_body)
 
 
 if __name__ == '__main__':
     application = web.Application([
-        ('/_channel/', EchoWebSocket),
+        ('/_channel/', ChangeWebSocket),
         ('/(.+\.html)', MainHandler),
     ], template_path='.')
     application.listen(8888)

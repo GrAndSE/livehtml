@@ -1,2 +1,2 @@
 include CHANGELOG LICENSE README
-recursive-include livehtml/ *
+recursive-include livehtml *

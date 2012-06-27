@@ -153,7 +153,7 @@ def start_server(root_path, template_path=None, port=None):
     handler = init_handler(root_path)
     application = web.Application([
         ('/_channel/', ChangeWebSocket, {'handler': handler}),
-        ('/_scripts/jdws.js', ScriptHandler),
+        ('/_scripts/ldws.js', ScriptHandler),
         ('/(.+\.html)', HTMLHandler, {'path': root_path}),
         ('/(.*)', web.StaticFileHandler, {'path': root_path}),
     ], template_path=template_path or root_path)

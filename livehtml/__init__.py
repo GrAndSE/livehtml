@@ -1,3 +1,5 @@
+'''Simple server for live html editing.
+'''
 import fcntl
 import json
 import mimetypes
@@ -17,6 +19,8 @@ class Notifier(object):
         self.running = False
 
     def append(self, handler, file_name):
+        '''Add handler that listern for changes in file named file_name
+        '''
         self.handlers[file_name] = (os.stat(file_name).st_mtime, handler)
 
     def __call__(self, signum, frame):
@@ -51,9 +55,9 @@ class Notifier(object):
                                 result[part].append(line)
                                 part = None
                         if part:
-                            result[part].append(line);
-                    buffer = {name: ''.join(result[name]) for name in result}
-                    handler.write_message(json.dumps(buffer))
+                            result[part].append(line)
+                    buff = {name: ''.join(result[name]) for name in result}
+                    handler.write_message(json.dumps(buff))
         self.running = False
 
 
@@ -68,9 +72,9 @@ def init_handler(root_path):
                 fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
     for path in os.listdir(root_path):
         if os.path.isdir(path):
-            fd = os.open(path, os.O_RDONLY)
-            fcntl.fcntl(fd, fcntl.F_SETSIG, 0)
-            fcntl.fcntl(fd, fcntl.F_NOTIFY,
+            tfd = os.open(path, os.O_RDONLY)
+            fcntl.fcntl(tfd, fcntl.F_SETSIG, 0)
+            fcntl.fcntl(tfd, fcntl.F_NOTIFY,
                         fcntl.DN_MODIFY | fcntl.DN_CREATE | fcntl.DN_MULTISHOT)
     return handler
 
@@ -84,27 +88,38 @@ class ChangeWebSocket(websocket.WebSocketHandler):
         self.handler = handler
 
     def open(self):
+        '''On socket opening
+        '''
         print("WebSocket opened")
 
     def on_message(self, message):
         '''Create a file change handler
         '''
-        print 'Append to handler', message
+        print('Append to handler', message)
         self.handler.append(self, os.path.realpath('./' + message))
 
     def on_close(self):
+        '''On socket closing
+        '''
         print("WebSocket closed")
 
 
-SCRIPT = '<script type="text/javascript" src="/ldws.js"></script>'
+SCRIPT = '<script type="text/javascript" src="/_scripts/ldws.js"></script>'
 
 
 class HTMLHandler(web.RequestHandler):
     '''Handle html static context
     '''
 
+    def initialize(self, path):
+        '''Set root path
+        '''
+        self.root_path = path
+
     def get(self, path):
-        real_path = os.path.realpath('./' + path)
+        '''Get response
+        '''
+        real_path = os.path.realpath(os.path.join(self.root_path, path))
         with open(real_path) as html_file:
             for line in html_file:
                 if '</head>' not in line:
@@ -117,13 +132,29 @@ class HTMLHandler(web.RequestHandler):
                     self.write(after_body)
 
 
+class ScriptHandler(web.RequestHandler):
+    '''Handle scripts included
+    '''
+
+    def get(self):
+        '''Get js response
+        '''
+        self.set_header('Content-Type', 'text/javascript')
+        real_path = os.path.realpath(os.path.join(os.path.dirname(__file__),
+                                                  'ldws.js'))
+        with open(real_path) as js_file:
+            for line in js_file:
+                self.write(line)
+
+
 def start_server(root_path, template_path=None, port=None):
     '''Run the development server
     '''
     handler = init_handler(root_path)
     application = web.Application([
         ('/_channel/', ChangeWebSocket, {'handler': handler}),
-        ('/(.+\.html)', HTMLHandler),
+        ('/_scripts/jdws.jg', ScriptHandler),
+        ('/(.+\.html)', HTMLHandler, {'path': root_path}),
         ('/(.*)', web.StaticFileHandler, {'path': root_path}),
     ], template_path=template_path or root_path)
     application.listen(port or 8888)
@@ -132,5 +163,4 @@ def start_server(root_path, template_path=None, port=None):
 
 if __name__ == '__main__':
     # start server on current path
-    root_path = os.path.realpath('.')
-    start_server(root_path)
+    start_server(os.path.realpath('.'))

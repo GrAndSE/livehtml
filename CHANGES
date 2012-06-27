@@ -1,0 +1,10 @@
+LiveHTML changelog
+==================
+
+
+Version 0.0.1
+-------------
+(released on June 27th 2012)
+- Simple html server serving html, css, js files.
+- Track the changes in html files and push them via websockets to client.
+- Supports packaging.

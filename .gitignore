@@ -1,4 +1,7 @@
 *.pyc
 *.py~
 *.swp
-/tornado
+MANIFEST
+build/*
+dist/*
+tornado/*

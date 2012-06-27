@@ -117,14 +117,20 @@ class HTMLHandler(web.RequestHandler):
                     self.write(after_body)
 
 
-if __name__ == '__main__':
-    # start server
-    root_path = os.path.realpath('.')
+def start_server(root_path, template_path=None, port=None):
+    '''Run the development server
+    '''
     handler = init_handler(root_path)
     application = web.Application([
         ('/_channel/', ChangeWebSocket, {'handler': handler}),
         ('/(.+\.html)', HTMLHandler),
         ('/(.*)', web.StaticFileHandler, {'path': root_path}),
-    ], template_path='.')
-    application.listen(8888)
+    ], template_path=template_path or root_path)
+    application.listen(port or 8888)
     ioloop.IOLoop.instance().start()
+
+
+if __name__ == '__main__':
+    # start server on current path
+    root_path = os.path.realpath('.')
+    start_server(root_path)
